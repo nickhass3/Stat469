@@ -1,0 +1,106 @@
+---
+title: "Movie Revenue EDA"
+author: "Nick Hass"
+date: "1/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## EDA
+
+### Primary Research Questions
+1. How much revenue should a movie studio expect to receive for each dollar of production budget invested in a film?
+2. Are higher production budget films more variable in the domestic gross?
+3. What films under vs. overperformed domestically relative to their predicted domestic gross?
+
+
+### Main reasons for analyzing the data, goals of analysis, and importance.
+
+The main reason for analyzing this Movie Profitability data is to inform the movie studios what they can expect in return from funding films.
+
+The goals of this analysis are:
+
+1. To determine how much revenue a movie studio should expect to receive for each dollar of production budget invested in a film.
+2. To determine if higher production budget films more variable in the domestic gross.
+3. To determine which films under vs. overperformed domestically relative to their predicted domestic gross.
+
+These goals are important because movie studios should know how much money they are putting on the line when funding a film, so that they can determine how much to fund a movie, whether or not to fund a movie, and what revenue to expect once they have funded a movie.
+
+```{r}
+mr <- read.csv('Movies.csv')
+mr$ReleaseDate <- lubridate::as_date(mr$ReleaseDate)
+summary(mr)
+head(mr)
+```
+
+```{r}
+ggplot(mr, aes(x = substr(ReleaseDate, 1, 4), y = DomesticGross)) +
+  geom_point() +
+  xlab("Year Movie Was Released") + ylab("Domestic Gross in USD") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Newer movies have the potential to earn a higher Domestic Gross.
+
+```{r}
+ggplot(mr, aes(x = ProductionBudget, y = DomesticGross)) +
+  geom_point() + 
+  geom_smooth()
+```
+
+As the Production Budget increases, so does the Domestic Gross. Data points below the blue line underperformed relative to their predicted Domestic Gross revenue. Data points above the blue line overperformed relative to their predicted Domestic Gross revenue.
+
+```{r}
+ggplot(mr, aes(x = ProductionBudget, y = WorldwideGross)) +
+  geom_point() + 
+  geom_smooth()
+```
+
+As the Production Budget increases, so does the Worldwide Gross.
+
+```{r}
+ggplot(data = mr) +
+  geom_bar(mapping = aes(x = factor(substr(ReleaseDate, 1, 3)) )) +
+  xlab("Decade of Movie Release divided by 10") + ylab("Count of Movies Released")
+```
+
+There are many more films released in the 2000s and 2010s decades than previously.
+
+```{r}
+ggplot(data = mr) +
+  geom_bar(mapping = aes(x = factor(substr(ReleaseDate, 6, 7)))) +
+  xlab("Month Movie Was Released") + ylab("Count of Movies Released")
+```
+
+More movies were released in December than any other month.
+
+
+
+
+#### Aspects of the data that would create correlation between observations. If applicable, quantify how much cross-observation correlation is present in the data.
+
+Correlation between observations could be caused by Movies produced by the same movie studio, director, or actors.
+This is because Stephen Spielberg films are much more popular than movies directed by other directors.
+We are unable to see this level of granularity in the data.
+
+```{r}
+ccf(mr$ReleaseDate, mr$ProductionBudget)
+```
+
+
+
+#### Posit an appropriate statistical model that could be applied to analyze the data. Discuss why the proposed statistical method would be useful in achieving the goals mentioned in point #1.
+
+I propose that a multiple linear regression model could be applied to analyze the data.
+This method would be useful in achieving the goals because we will see how movie revenue is affected by movie budget.
+
+
+
+
+#### Identify one aspect of the analysis that you don’t know how to do.
+
+I don't know how to show domestic and worldwide gross at the same time on the y-axis of a plot because they are different variables, and not levels of the same variable.

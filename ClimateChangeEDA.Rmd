@@ -1,0 +1,72 @@
+---
+title: "Climate Change EDA"
+author: "Nick Hass"
+date: "2/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+##### 1. 
+
+The main reasons for analyzing this data is to identify if global warming is real, and project what temperature anomalies will be over the next 5 years.
+
+The goals for the analysis is to prove if there is evidence of a significant “hockey stick” shape in global temperatures and to project temperature anomalies for the next 5 years. These goals are important because an increase in global warming can have extreme consequences. It is important to know if global warming is accelerating at an accelarating or decreasing rate. For example, analysis on if global warming is getting worse or is getting better provides results about actions taken by private and public organizations.
+
+
+```{r}
+climate <- as_tibble(read.csv('AnnAvgGlobalClimate.txt', sep = " "))
+climate$Month <- as_factor(climate$Month)
+climate %>% 
+  ggplot(mapping = aes(x = Year, y = AnnAnom)) +
+  geom_point() +
+  geom_smooth(se=FALSE)
+```
+
+This plot shows a "hockey stick" shape. The temperature anomalies have increased every year since circa 1970 and continue to increase at a linear rate.
+
+```{r}
+climate$Date <- zoo::as.yearmon(paste(climate$Year, climate$Month), "%Y %m")
+            
+climate %>% 
+  ggplot(mapping = aes(x = Date, y = AnnAnom)) +
+  geom_line()
+```
+
+This plot shows the seasonality of the data, and how the anomalies fluctuate in a similar pattern every year.
+
+
+```{r}
+climate %>% 
+  ggplot(mapping = aes(x = AnnAnom)) +
+  geom_histogram()
+```
+
+There have been many year months where the temperature anomaly fell around 0, and another large group of year months where the temperature anomaly fell around 0.6.
+
+```{r}
+climate %>% 
+  transform(bin = cut(Year, 7)) %>%
+  ggplot(mapping = aes(x = bin, y = AnnAnom)) +
+  geom_boxplot() +
+  xlab("Year") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Here I grouped the years of the dataset into 7 groups and plotted a boxplot of the temperature anomaly for each of these year ranges. I can still observe a hockey stick shape. I can also see that most of these years have consistently been raising, and the difference between the minimum and maximum values are relatively the same distance apart between groups of years.
+
+
+#### Discuss aspects of the data that would create correlation between observations.  If applicable, quantifyhow much cross-observation correlation is present in the data.
+
+The time aspect of the data would create correlation between observations because temperature anomalies that are only a month apart or within the same year will be more similar to each other than between observations with a large time gap. There is cross-observation correlation in every row of this dataset.
+
+
+##### Posit  an  appropriate  statistical  model  that  could  be  applied  to  analyze  the  data.   Discuss  why  theproposed statistical method would be useful in achieving the goals mentioned in point #1.
+I would use linear regression to analyze this data because there seems to be a linear relationship between Time and Temperature Anomalies after 1980. If I new how to model Time Series, then I would definitely use that.
+
+#### One aspect of the I don't know how to do
+I don't know how to predict with seasonality in the data. 

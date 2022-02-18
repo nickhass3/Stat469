@@ -1,0 +1,104 @@
+---
+title: "Pedagogy"
+author: "Nick Hass"
+date: "2/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+Primary Research Questions
+
+The goal of gathering the data was to assess if the semester learning activities (e.g. homework, quizzes andexams) was associated with successful learning of the course material (as measured by the final exam score).Specifically, the department researchers want to answer the following questions:
+
+1.What activities, if any, are associated with improved learning?  Are there activities that are not associated with improved learning?
+-- Which predictors have significantly positive betas? (hypothesis test, conf int).
+-- Which predictors do not have significantly positive betas?
+
+2.Of those activities that are associated with improved learning, which have the strongest effect on learning? How large are these effects?
+-- Which of the predictors has the greatest betas? What is that beta and its interpretation?
+
+3. How well do the class activities explain student learning?
+-- What is the r-squared? Is it high?
+
+4. Historically, were there any semesters that had either better or worse student learning than average?
+-- Are there y outliers in the data set?
+
+```{r}
+scores <- read.csv("ClassAssessment.txt", sep = " ")
+summary(scores)
+```
+
+EDA
+```{r}
+ggplot(data = scores, mapping = aes(x = Exam3+Exam2+Exam1, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores, mapping = aes(x = Exam1, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores, mapping = aes(x = Exam2, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores, mapping = aes(x = Exam3, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores, mapping = aes(x = HW, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores, mapping = aes(x = Quiz, y = Final)) +
+  geom_point() + geom_smooth()
+
+ggplot(data = scores) +
+  geom_density(mapping = aes(x=Final))
+
+ggplot(data = scores) +
+  geom_point(mapping = aes(x=NStudents, y = Final))
+```
+
+
+```{r}
+scores.lm <- lm(Final ~ ., data = scores)
+summary.lm(scores.lm)
+```
+It looks like Exam 1, 2, 3, and HW are associated with improved learning.
+This model as a whole (looking at R-squared), explains learning very well with R-squared=0.9121
+
+```{r}
+scores.lm2 <- lm(Final ~ Exam1 + Exam2 + Exam3 + HW, data = scores)
+summary(scores.lm2)
+plot(scores.lm2)
+```
+
+This reduced model outperforms the full model because the adjusted R-squared is higher with a 0.8939.
+
+Model Validation
+LINE
+Linearity - Yes
+Independence - Probably no, but assume yes.
+Normality - yes
+Equal variance - No
+
+
+```{r}
+# Fit heteroskedastic model
+library(nlme)
+scores.gls <- nlme::gls(model = Final ~ Exam1 + Exam2 + Exam3 + HW + Quiz + Semester, 
+    data = scores, 
+    weights = varFixed(value = ~NStudents),
+    method = "ML") # Maximum Likelihood
+
+summary(scores.gls)
+GGally::ggpairs(scores)
+```
+
+$\text{EatingOut} \sim N(\text{Income}\beta, \sigma^2{\bf D}(\theta)) \ \ \ \  d_{ii}=e^{2log(\text{income}_i)\theta}$  
+
+
+$y = X\beta + \epsilon$
+
+$\epsilon \sim N(0, \sigma^2I)$

@@ -1,0 +1,261 @@
+---
+title: "Birth Weight Analysis Code"
+author: "Nick Hass"
+date: "1/19/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+## Birth Weight Data
+
+```{r}
+bw <- read.csv('BirthWeights.txt', sep = " ")
+summary(bw)
+head(bw)
+dplyr::glimpse(bw)
+```
+
+## Exploratory Data Analysis
+
+1. Scatterplot of BirthWeight by Mage
+2. Side-by-side boxplots of BirthWeight for each category in Race
+3. A scatterplot of BirthWeight by Gage where the dots are colored according to Gen
+4. The correlation between BirthWeight and Mage.
+5. A pairs plot of all the variables in the BirthWeight dataset.
+
+```{r}
+#1. 
+ggplot(bw, aes(x = Mage, y = BirthWeight)) +
+  geom_point()
+
+#2. 
+ggplot(bw, aes(x = Race, y = BirthWeight)) +
+  geom_boxplot()
+
+#3. 
+ggplot(bw, aes(x = Gage, y = BirthWeight, colour = Gen)) +
+  geom_point() # color by Gen +
+
+#4.
+cor(bw["BirthWeight"], bw["Mage"])
+
+#5. 
+library(GGally)
+response <- bw$BirthWeight
+bw <- bw[-1]
+bw$BirthWeight <- response
+ggpairs(bw)
+```
+
+
+## Fitting a Linear Model
+
+#### 1. Without the use of lm() calculate β̂  and s2. Verify your answer using lm().
+```{r}
+#1. 
+X <- model.matrix(BirthWeight~., data = bw)
+P <- 6
+n <- dim(bw)[1]
+
+beta_hat <- solve(t(X)%*%X) %*% t(X) %*% bw$BirthWeight
+
+resid_variance <- t(bw$BirthWeight - X %*% beta_hat) %*% (bw$BirthWeight - X %*% beta_hat) / (n-P-1)
+bw.lm <- lm(BirthWeight ~ ., data=bw)
+
+print(lm(BirthWeight ~ ., data=bw))
+print(beta_hat)
+print(resid_variance)
+
+sigma(bw.lm)^2
+```
+
+My numbers are the same.
+
+
+#### 2. Without the use of lm() calculate the fitted values Xβ̂ . Verify your calculations by pulling off the fitted values from an lm() object.
+```{r}
+fitted_values <- X%*%beta_hat
+# fitted(bw.lm) # don't want to print out all the rows
+
+head(round(fitted_values, 5) == round(fitted(bw.lm), 5))
+tail(round(fitted_values, 5) == round(fitted(bw.lm), 5))
+```
+
+My calculated fitted values and the fitted values from the lm() object are the same.
+
+#### 3. Without the use of lm() calculate the residuals y−Xβ̂  Verify your calculations by pulling off the residuals from an lm() object.
+```{r}
+residuals = bw$BirthWeight - (X %*% beta_hat)
+# resid(bw.lm)
+
+head(round(residuals, 5) == round(resid(bw.lm), 5))
+tail(round(residuals, 5) == round(resid(bw.lm), 5))
+```
+
+#### 4. Identify your model R2 from the summary() output.
+```{r}
+summary(bw.lm)$r.squared
+```
+
+## Checking Assumptions
+
+#### 1. Construct added variable plots and assess if the linearity assumption is OK for this data.
+```{r}
+car::avPlots(bw.lm)
+```
+
+Linearity assumption is ok.
+
+#### 2. Construct a histogram of the standardized residuals and run a KS-test to see if the normality assumption is OK for this data.
+```{r}
+
+standardized.residuals = MASS::stdres(bw.lm)
+
+ggplot() + 
+  geom_histogram(mapping = aes(x = MASS::stdres(bw.lm) ))
+
+# KS Test
+ks.test(standardized.residuals, "pnorm")
+```
+
+Histogram of the standardized residuals looks normal.
+Results from the KS test indicate that the standardized residuals follow a normal distribution because of the high p-value (failing to reject that it is not normal).
+
+#### 3. Draw a scatterplot of the fitted values vs. standardized residuals and run a BP-test to see if the equal variance assumption is OK for this data.
+```{r}
+ggplot() + 
+  geom_point(mapping = aes(x = fitted(bw.lm), y = resid(bw.lm) ))
+
+lmtest::bptest(bw.lm)
+```
+
+The fitted values vs standardized residuals plot looks good.
+The BP test reveals that the equal variance assumption holds because of the high p-value (the test fails to reject the null hypothesis that it is normal).
+
+
+
+## Predictions
+
+#### 1. Without using predict.lm(), calculate your point prediction of the birth weight for a baby with Mage=26, Gage=37, Race="hisp" and Gen="Female" using the formula ŷ new=xnewβ̂  where β̂  is the maximum likelihood estimate that you calculated above. Confirm that this is what predict.lm() is doing to get the point prediction.
+```{r}
+new.x = data.frame(Mage=26, Gage=37, Race="hisp", Gen="Female")
+predict.lm(bw.lm, newdata=new.x, interval="prediction", level=0.97)
+
+# without using predict.lm()
+# Set up x matrix
+x.new = matrix(c(1, 26, 37, 1, 0, 0, 0), ncol=1)
+t(x.new) %*% coef(bw.lm)
+```
+
+They are both 2741.04.
+
+#### 2. Using predict.lm(), get a prediction of the birth weight for a baby with Mage=26, Gage=37, Race="hisp" and Gen="Female" and an associated 99% prediction interval.
+```{r}
+newer.x = data.frame(Mage=26, Gage=37, Race="hisp", Gen="Female")
+predict.lm(bw.lm, newdata=newer.x, interval="prediction", level=0.99)
+```
+
+## Cross Validation
+
+```{r}
+n.cv <- 100 #Number of CV studies to run
+n.test <- round(dim(bw)[1]*.8) #Number of observations in a test set 
+rpmse <- rep(x=NA, times=n.cv)
+bias <- rep(x=NA, times=n.cv)
+wid <- rep(x=NA, times=n.cv)
+cvg <- rep(x=NA, times=n.cv)
+for(cv in 1:n.cv) {
+  ## Select test observations
+  test.obs <- sample(x = 1:n, size = n.test)
+  
+  ## Split into test and training sets
+  test.set <- bw[test.obs,]
+  train.set <- bw[-test.obs,]
+  
+  ## Fit a lm() using the training data
+  train.lm <- lm(formula = BirthWeight~., data = train.set)
+  
+  ## Generate predictions for the test set
+  my.preds <- predict.lm(train.lm, newdata = test.set, interval = "prediction")
+  
+  ## Calculate bias
+  bias[cv] <- mean(my.preds[,'fit'] - test.set[['BirthWeight']])
+  
+  ## Calculate RPMSE
+  rpmse[cv] <- (test.set[['BirthWeight']] - my.preds[,'fit'])^2 %>% mean() %>% sqrt()
+  
+  ## Calculate Coverage
+  cvg[cv] <- ((test.set[['BirthWeight']] > my.preds[,'lwr']) & (test.set[['BirthWeight']] < my.preds[,'upr'])) %>% mean()
+  
+  ## Calculate Width
+  wid[cv] <- (my.preds[,'upr'] - my.preds[,'lwr']) %>% mean()
+  
+}
+```
+
+#### Adjust the above code to run 100 Monte Carlo cross validations and plot histograms (or density plots) of the bias, RPMSE, coverage and width.
+```{r, error = TRUE}
+ggplot() +
+  geom_histogram(mapping = aes(x =  bias))
+
+ggplot() +
+  geom_histogram(mapping = aes(x =  rpmse))
+
+ggplot() +
+  geom_histogram(mapping = aes(x =  cvg))
+
+ggplot() + 
+  geom_histogram(mapping = aes(x =  wid))
+```
+
+
+
+## Hypothesis Testing and Confidence Intervals
+
+#### 1. Using lm() construct the t−statistic and p-value for the test H0:βMage=0.
+```{r}
+#summary(lm(BirthWeight ~ ., data = bw))
+pval <- summary(lm(BirthWeight ~ ., data = bw))$coefficients[2,4] # P value
+sprintf("p-value: %f", pval)
+tstat <- summary(lm(BirthWeight ~ ., data = bw))$coefficients[2,3] # T statistic
+sprintf("t-value: %f", tstat)
+
+```
+
+T-statistic for Mage=0 is -2.259, with p-value=0.024
+
+#### 2. Using confint() and lm(), build a 90% confidence interval for βMage.
+```{r}
+confint(lm(BirthWeight ~ ., data = bw), level = .9)
+confint(lm(BirthWeight ~ ., data = bw), level = .9)[ "Mage", ]
+```
+
+90% confidence interval for the coefficient for Mage is (-6.555975, -1.028)
+
+#### 3. Using anova(), conduct a F test that race has no effect on birth weight (note: this answers primary research question #2).
+```{r}
+full.lm <- bw.lm
+reduced.lm <- lm(BirthWeight ~ Mage + Gage + Gen, data = bw)
+anova(full.lm,reduced.lm)
+```
+
+Since the p-value is low, we reject the reduced model and conclude that (the full model is better) race has effect on birth weight.
+
+#### 4. Using glht(), conduct a t test and 94% confidence interval for the difference in average birth weight of babies born with explanatory variables Mage=24, Gage=40, Race="white" and Gen="Male" and babies born with explanatory variables Mage=34, Gage=33, Race="white" and Gen="Male".
+```{r}
+# Difference in birth weight
+baby1 <- matrix(c(1, 24, 40, 0, 0, 1, 1), nrow=1)
+baby2 <- matrix(c(1, 34, 33, 0, 0, 1, 1), nrow=1)
+diff_bw <- baby2-baby1
+ht <- multcomp::glht(bw.lm, linfct=diff_bw, alternative="two.sided")
+summary(ht)
+confint(ht, level=0.94)
+```
+
+I am 94% confident that baby number one is 1317.135 grams heavier than baby number 2.
+

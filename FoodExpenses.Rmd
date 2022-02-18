@@ -1,0 +1,288 @@
+---
+title: "Food Expenses Homework #2"
+author: "Nick Hass"
+date: "2/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+library(tidyverse)
+```
+
+```{r}
+food <- read.csv("FoodExpenses.txt", sep = " ")
+```
+#### 1. Create exploratory plots and calculate summary statistics from the data. Comment on any potential relationships you see between Income and EatingOut.
+```{r}
+summary(food)
+```
+
+The data set consists of incomes ranging from \$20k-\$140k (incrementing by 10k intervals) and is skewed right. Average dollars spent eating out per week ranges from \$20-\$93 and is also skewed right.
+
+```{r}
+food %>% 
+  ggplot() +
+  geom_histogram(mapping = aes(x = Income))
+```
+
+This data set's `income` column is very right skewed, with the majority of the population making between 40-80k.
+
+```{r}
+food %>% 
+  ggplot() +
+  geom_histogram(mapping = aes(x = EatingOut))
+```
+
+`EatingOut` is approximately normally distributed, slightly skewed right.
+
+```{r}
+food %>% 
+  ggplot(mapping = aes(x = as.factor(Income), y = EatingOut)) +
+  geom_boxplot() +
+  xlab("Annual Household Income (in thousands)")
+```
+
+I can see from this graph that as `Income` increases, the spread of `EatingOut` increases.
+
+As income increases, the average weekly expenditure on food not cooked at home also increases.
+
+```{r}
+food %>% 
+  ggplot(mapping = aes(x = as.factor(Income), y = EatingOut)) +
+  geom_point() +
+  xlab("Annual Household Income (in thousands)")
+```
+
+This plot also shows that as Annual Household Income increases, the average money spent eating out per week increases, but is more variable.
+
+#### 2. Using a homoskedastic linear model, fit a regression model to EatingOut using Income as the explanatory variable. Determine if the equal variance assumption is met. If it not met, discuss what impact the violation of this assumption could have on an analysis on the relationship between income and food expenditure.
+
+```{r}
+food.lm <- lm(EatingOut ~ Income, data = food)
+
+ggplot() + 
+  geom_point(mapping = aes(x = fitted(food.lm), y = resid(food.lm) ))
+
+lmtest::bptest(food.lm)
+```
+
+The fitted values vs standardized residuals plot shows that equal variance does not hold.
+The BP test reveals that the equal variance assumption does not hold because of the low p-value (the test rejects the null hypothesis that it is normal, and concludes that there is not equal variance).
+
+The violation of this assumption is that as income increases, my point estimates will be accurate, but my confidence intervals will be way off. When income is high, my confidence interval wouldn't be large enough.
+
+
+#### 3. Write down a heteroskedastic linear regression model (in matrix and vector form) in terms of population parameters including your specification for the variance function with `EatingOut` as the response and `Income` as the explanatory variable. 
+Explain the meaning of any parameters in your model. 
+Explain how statistical inference for your model can be used to answer the effect of income on food expenditure.
+
+$\text{EatingOut} \sim N(\text{Income}\beta, \sigma^2{\bf D}(\theta)) \ \ \ \  d_{ii}=e^{2log(\text{income}_i)\theta}$  
+
+`Income` is Annual household income (in thousands) n x (P+1) design matrix
+
+`EatingOut` is Average weekly expenditure on food not cooked at home. n x 1 vector
+
+$\beta$ is the vector of coefficients
+
+$\sigma^2$ is the matrix of variances 
+
+$D(theta)$ is the n * n matrix of weights of the variances (covariance function)
+
+Statistical inference for my model can answer the effect of income on food expenditure because I can use the information about income to predict food expenditure, and I can use the variability in `EatingOut` when `Income` increases.
+
+
+##### 4. Fit your model from #3 to EatingOut. Validate the model L-I-N-E assumptions so you will be confident that the statistical inference you perform below will be correct.
+
+```{r}
+# Fit heteroskedastic model
+library(nlme)
+food.gls <- nlme::gls(model = EatingOut ~ Income, 
+    data = food, 
+    weights = varExp(form = ~Income),
+    method = "ML") # Maximum Likelihood
+```
+
+Linearity
+```{r}
+food %>% 
+  ggplot() +
+  geom_point(mapping = aes(x = Income, y = EatingOut))
+```
+Linearity holds.
+
+Independence - I am assuming that there is independence between observations.
+
+Normality
+```{r}
+new_resid <- resid(object = food.gls, type = "pearson")
+ggplot() + 
+  geom_histogram(mapping = aes(x = new_resid ))
+```
+
+Normality assumption holds.
+
+Equal Variance
+```{r}
+ggplot() + 
+  geom_point(mapping = aes(x = fitted(food.gls), y = new_resid))
+```
+
+Equal variance holds.
+
+
+#### 5. Validate your predictions based on your model in #3 via cross-validation (any of leave-one-out, Monte Carlo or K-fold). Report your model RPMSE and coverage. Additionally, show your predictions and 95% prediction interval bounds on a scatterplot of income vs. food expenditure.
+
+```{r}
+source("glstools-master/predictgls.R")
+n <- dim(food)[1]
+n.cv <- 100 #Number of CV studies to run
+n.test <- floor(n*.2) #Number of observations in a test set 
+rpmse <- rep(x = NA, times = n.cv)
+bias <- rep(x = NA, times = n.cv)
+wid <- rep(x = NA, times = n.cv)
+cvg <- rep(x = NA, times = n.cv)
+for(cv in 1:n.cv) {
+  ## Select test observations
+  test.obs <- sample(x = 1:n, size = n.test)
+  
+  ## Split into test and training sets
+  test.set <- food[test.obs,]
+  train.set <- food[-test.obs,]
+  
+  ## Fit a lm() using the training data
+  #train.lm <- lm(formula = BirthWeight~., data = train.set)
+  ##train.lm <- lm(formula = log(DomesticGross) ~ log(ProductionBudget) + Month, data = train.set)
+  train.lm <- nlme::gls(model = EatingOut ~ Income, 
+    data = train.set, 
+    weights = varExp(form = ~Income),
+    method=  "ML")
+  
+  ## Generate predictions for the test set
+  #my.preds <- predict.lm(train.lm, newdata = test.set, interval = "prediction")
+  
+  my.preds <- predictgls(nlme::gls(model = EatingOut ~ Income, 
+    data = train.set, 
+    weights = varExp(form = ~Income),
+    method = "ML"),
+    newdframe = test.set,
+    level = 0.95)
+  
+  #my.preds <- predictgls(glsobj = train.lm, level = .99)
+  #predict(train.lm, level = 0.99)
+  
+  ## Calculate bias
+  bias[cv] <- mean(my.preds[,'Prediction'] - test.set[['EatingOut']])
+  #bias[cv] <- mean(my.preds - test.set[['DomesticGross']])
+  
+  ## Calculate RPMSE
+  rpmse[cv] <- (test.set[['EatingOut']] - my.preds[,'Prediction'])^2 %>% mean() %>% sqrt()
+#  rpmse[cv] <- (test.set[['DomesticGross']] - my.preds)^2 %>% mean() %>% sqrt()
+  
+  ## Calculate Coverage
+  cvg[cv] <- ((test.set[['EatingOut']] > my.preds[,'lwr']) & (test.set[['EatingOut']] < my.preds[,'upr'])) %>% mean()
+  
+  ## Calculate Width
+  wid[cv] <- (my.preds[,'upr'] - my.preds[,'lwr']) %>% mean()
+  
+}
+```
+
+```{r}
+mean(rpmse)
+mean(cvg)
+```
+
+Average RPMSE: 8.065675
+Average Coverage: 0.9427885
+
+Additionally, show your predictions and 95% prediction interval bounds on a scatterplot of income vs. food expenditure.
+```{r}
+
+food_predictions <- predictgls(nlme::gls(model = EatingOut ~ Income, 
+    data = food, 
+    weights = varExp(form = ~Income),
+    method = "ML"),
+    newdframe = test.set,
+    level = 0.95)
+
+ggplot() + 
+  geom_point(data = my.preds, mapping = aes(x = Income, y = EatingOut)) + #Scatterplot
+  geom_line(data = my.preds, mapping = aes(x = EatingOut, y = Prediction)) + #Prediction Line
+  geom_line(data = my.preds, mapping = aes(x = EatingOut, y = lwr), color = "red", linetype = "dashed") + #lwr bound
+  geom_line(data = my.preds, mapping=aes(x = EatingOut, y = upr), color = "red", linetype = "dashed") #Upper bound
+```
+
+
+#### 6. Report beta_hat_income along with a 95% confidence interval for the model in #4. Report any variance parameters (including the variance function parameters) along with appropriate 95% confidence intervals. Correctly interpret all intervals in context.
+
+```{r}
+# beta hat estimate
+food.gls$coefficients[2]
+# beta hat confidence interval
+confint(food.gls, level = 0.95)[2,]
+
+# variance parameters and CI 
+intervals(food.gls, level = 0.95)
+```
+
+$\hat{\beta}_{inc} = 0.4430501$
+
+95% confidence interval for $\hat{\beta}_{inc}$ is (0.4165682, 0.4695319). I am 95% confident that as Income increases by \$1000, the amount of money spent EatingOut will increase by between 0.4165682 and 0.4695319 on average.
+
+Variance Parameters and Confidence Interval:
+
+I am 95% confident that the confidence interval (0.0112, 0.0159) contains the true rate of change of the variance parameter theta. This means that as income increases, the confidence interval for EatingOut will be larger by an amount between 0.0112 and 0.0159.
+I am 95% confident that the interval (2.388, 3.339) contains the true residual standard error.
+
+
+#### 7. Economists with the National Restaurant Association (which, perhaps unfortunately, shares its acronym with another institution), hypothesize that a “healthy” restaurant economy should see increases of about $0.50 or more per week for each \$1000 increase in income. Using your heteroskedastic model, test if the economy is NOT “healthy” for restaurant owners. State your hypotheses, p-value and an appropriate conclusion.
+
+```{r}
+# n <- dim(food)[1]
+# se <- summary(food.gls)$tTable[2,3]
+# bta <- coef(food.gls)[2]
+# test.stat <- (bta - 0.5)/se
+# pvalue <- pt(test.stat, df=n-(1+1), lower.tail=FALSE)
+
+a.trans <- matrix(c(0, 1), nrow = 1)
+hyptest <- multcomp::glht(food.gls, linfct = a.trans, rhs = 0.50, alternative = "two.sided")
+summary(hyptest)
+```
+
+Hypothesis:
+
+$H_0: \hat{\beta}_{inc} = 0.5$
+$H_a: \hat{\beta}_{inc} ≠ 0.5$
+
+P-value: 2.5e-05
+
+Conclusion: I  reject the null hypothesis, with a p-value of 2.5e-05, and conclude that the mean increase is not 50 cents per week the economy is NOT “healthy” for restaurant owners.
+
+#### 8. Predict how much you will be spending at restaurants for your desired income level upon graduation (meaning at your first job). Report a 95% prediction interval and interpret the interval in context.
+
+```{r}
+Income <- c(80, 80)
+EatingOut <- c(22, 22)
+df <- data.frame(Income, EatingOut)
+
+preds.fit <- predictgls(gls(model = EatingOut ~ Income, 
+    data = food, 
+    weights = varExp(form = ~Income),
+    method = "ML"),
+    newdframe = df,
+    level = 0.95)
+
+pred.low <- preds.fit$Prediction - qt(1 - 0.05 / 2, df = (nrow(food) - 
+                                         length(coef(food.gls)))) * preds.fit$SE.pred
+pred.up <- preds.fit$Prediction + qt(1 - 0.05 / 2, df = (nrow(food) - 
+                                         length(coef(food.gls)))) * preds.fit$SE.pred
+predint <- as.data.frame(cbind("lower" = pred.low, "prediction" = preds.fit$Prediction, "upper" = pred.up))
+head(predint)
+```
+
+If I make a salary of \$80k, I predict that I will spend \$54.63291 eating out per week on average. I am 95% confident that I will spend between \$38.17 and \$71.10 eating out per week, on average.
+
+

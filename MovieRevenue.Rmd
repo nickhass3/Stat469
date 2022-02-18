@@ -1,0 +1,291 @@
+---
+title: "Movie Revenue"
+author: "Nick Hass"
+date: "1/31/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+mr <- read.csv('MovieRevenue.csv')
+```
+
+## EDA
+
+##### 1. Draw a scatterplot of DomesticGross by ProductionBudget. Add a smooth line to gauge how linear the relationship is.
+```{r}
+ggplot(mr, aes(x = ProductionBudget, y = DomesticGross)) +
+  geom_point() + 
+  geom_smooth()
+```
+
+##### 2. Convert ReleaseDate to a date object, extract the month and plot side-by-side boxplots of DomesticGross for each month.
+```{r}
+mr$ReleaseDate <- lubridate::as_date(mr$ReleaseDate)
+
+mr$Month <- as.factor(lubridate::month(mr$ReleaseDate, label = TRUE))
+
+ggplot(data = mr, mapping = aes(x = Month, y = DomesticGross)) +
+  geom_boxplot()
+```
+
+##### 3. Draw a scatterplot of log(DomesticGross) by log(ProductionBudget). Add a smooth line to gauge how linear the relationship is.
+```{r}
+ggplot(data = mr, mapping = aes(x = log(ProductionBudget), y = log(DomesticGross))) +
+  geom_point() + 
+  geom_smooth()
+```
+
+## Analysis with a MLR
+
+##### 1. Fit a MLR model and build a 95% confidence interval for the effect of ProductionBudget on DomesticGross (this is the first attempt at answering research question #1).
+```{r}
+mr.lm <- lm(DomesticGross ~ ProductionBudget + Month, data = mr)
+confint(mr.lm)
+confint(mr.lm)[2,]
+```
+
+##### 2. Get a prediction for each movie in your dataset and identify the 5 movies that were the most above the predicted value. Also identify the 5 movies that were the most below the predicted value.
+```{r}
+#new.x = data.frame(ReleaseDate = "2009-12-25", Movie = "Nick1", ProductionBudget = 10000000, Month = "Dec")
+#predict.lm(mr.lm, newdata=new.x, interval="prediction", level=0.95)
+
+predictions <- predict.lm(mr.lm, newdata=mr)
+
+predictions_ordered <- mr[order(mr$DomesticGross-predictions, decreasing=TRUE)[1:5],]
+
+```
+
+##### 3. Show that the assumptions of the MLR model are not met (and hence statistical inference using an MLR model are not valid) by drawing a scatterplot of fitted vs. standardized residuals and a histogram of the standardized residuals.
+```{r}
+# Linearity
+car::avPlots(mr.lm)
+
+# Independence
+standardized.residuals = MASS::stdres(mr.lm)
+
+ggplot() + 
+  geom_histogram(mapping = aes(x = MASS::stdres(mr.lm) ))
+
+# KS Test
+ks.test(standardized.residuals, "pnorm")
+
+# Normality
+standardized.residuals = MASS::stdres(mr.lm)
+
+ggplot() + 
+  geom_histogram(mapping = aes(x = MASS::stdres(mr.lm) ))
+
+# KS Test
+ks.test(standardized.residuals, "pnorm")
+
+# Equal Variance
+ggplot() + 
+  geom_point(mapping = aes(x = fitted(mr.lm), y = resid(mr.lm) ))
+
+lmtest::bptest(mr.lm)
+```
+
+##### 4. Try 2 or 3 transformations of DomesticGross and/or ProductionBudget and show that these transformations are not going to fix the assumptions of the MLR model.
+```{r}
+mr.lm <- lm(log(DomesticGross) ~ log(ProductionBudget) + Month, data = mr)
+```
+
+I tried a few transformations (log transforms on the predictor, predictor and response, just response) and the equal variance assumption was still not satisfied.
+
+
+## Fitting a Linear Model with Heteroskedasticity
+
+
+```{r}
+library(nlme)
+mr.lm.hetero <- gls(model = log(DomesticGross) ~ log(ProductionBudget) + Month, 
+    data=mr, 
+    weights = varExp(form=~log(ProductionBudget)),
+    method="ML")
+```
+
+##### Identify the estimates of beta_hat, theta_hat and s
+```{r}
+mr.lm.hetero$coefficients
+coef(mr.lm.hetero$modelStruct, unconstrained=FALSE)
+mr.lm.hetero$sigma
+```
+
+## Validating your Heteroskedastic MLR Model
+
+##### 1. Check the L-I-N-E assumptions using the standardized residuals from your heterogeneous MLR fit in the previous subsection.
+```{r}
+# Standardize residuals
+new_resid <- resid(object=mr.lm.hetero, type="pearson")
+
+# Linearity
+car::avPlots(mr.lm)
+
+# Independence
+# The observations are not correlated to my knowledge.
+
+# Normality
+ggplot() + 
+  geom_histogram(mapping = aes(x = new_resid ))
+
+# Equal Variance
+ggplot() + 
+  geom_point(mapping = aes(x = fitted(mr.lm), y = new_resid ))
+```
+
+##### 2. Modify the cross-validation code from the birth weight analysis to run a cross-validation of your heterogeneous MLR using the predictgls() function. Report the bias, RPMSE, coverage and width of prediction intervals.
+```{r error=TRUE}
+source("glstools-master/predictgls.R")
+
+n.cv <- 100 #Number of CV studies to run
+n.test <- floor(dim(mr)[1]*.2) #Number of observations in a test set 
+rpmse <- rep(x = NA, times = n.cv)
+bias <- rep(x = NA, times = n.cv)
+wid <- rep(x = NA, times = n.cv)
+cvg <- rep(x = NA, times = n.cv)
+for(cv in 1:n.cv) {
+  ## Select test observations
+  test.obs <- sample(x = 1:(dim(mr)[1]), size = n.test)
+  
+  ## Split into test and training sets
+  test.set <- mr[test.obs,]
+  train.set <- mr[-test.obs,]
+  
+  ## Fit a lm() using the training data
+  #train.lm <- lm(formula = BirthWeight~., data = train.set)
+  ##train.lm <- lm(formula = log(DomesticGross) ~ log(ProductionBudget) + Month, data = train.set)
+  d <- varExp(form=~log(ProductionBudget))
+  train.lm <- nlme::gls(model = log(DomesticGross) ~ log(ProductionBudget), 
+    data = train.set, 
+    weights = varExp(form=~log(ProductionBudget)),
+    method="ML")
+  
+  ## Generate predictions for the test set
+  #my.preds <- predict.lm(train.lm, newdata = test.set, interval = "prediction")
+  
+  my.preds <- predictgls(nlme::gls(model = log(DomesticGross) ~ log(ProductionBudget), 
+    data = train.set, 
+    weights = varExp(form=~log(ProductionBudget)),
+    method="ML"),
+    newdframe = test.set,
+    level = 0.95)
+  
+  #my.preds <- predictgls(glsobj = train.lm, level = .99)
+  #predict(train.lm, level = 0.99)
+  
+  ## Calculate bias
+  bias[cv] <- mean(my.preds[,'Prediction'] - test.set[['DomesticGross']])
+  #bias[cv] <- mean(my.preds - test.set[['DomesticGross']])
+  
+  ## Calculate RPMSE
+  rpmse[cv] <- (test.set[['DomesticGross']] - my.preds[,'Prediction'])^2 %>% mean() %>% sqrt()
+#  rpmse[cv] <- (test.set[['DomesticGross']] - my.preds)^2 %>% mean() %>% sqrt()
+  
+  ## Calculate Coverage
+  cvg[cv] <- ((test.set[['DomesticGross']] > my.preds[,'lwr']) & (test.set[['DomesticGross']] < my.preds[,'upr'])) %>% mean()
+  
+  ## Calculate Width
+  wid[cv] <- (my.preds[,'upr'] - my.preds[,'lwr']) %>% mean()
+  
+}
+```
+
+Average:
+Bias: -49644248
+RPMSE: 85391893
+Coverage:0.94
+Width: 5.077686
+
+
+##### 3. For each movie in your dataset, construct a 99% prediction interval for DomesticGross (don’t forget to backtransform your prediction). Identify the top 5 movies where the observed DomesticGross was above the interval. Also identify the bottom 5 movies where the observed DomesticGross was below the interval (this answers research question #3).
+```{r}
+mr.lm.standarized <- predictgls(glsobj=mr.lm.hetero, level=.99)
+
+nick <- nlme::gls(model = log(DomesticGross) ~ log(ProductionBudget) + Month, 
+    data = mr, 
+    weights = d,
+    method="ML")
+
+dataPreds <- predictgls(nlme::gls(model = log(DomesticGross) ~ log(ProductionBudget) + Month, 
+                        data = mr, 
+                        weights = varExp(form=~log(ProductionBudget)),
+                        method="ML"),
+                        newdframe = mr, level = .99) #Don't give a newdframe and it will use the dataframe from glsobj
+
+ggplot() + 
+  geom_point(data=dataPreds, mapping=aes(x=log(ProductionBudget), y=log(DomesticGross))) + #Scatterplot
+  geom_line(data=dataPreds, mapping=aes(x=log(ProductionBudget), y=Prediction)) + #Prediction Line
+  geom_line(data=dataPreds, mapping=aes(x=log(ProductionBudget), y=lwr), color="red", linetype="dashed") + #lwr bound
+  geom_line(data=dataPreds, mapping=aes(x=log(ProductionBudget), y=upr), color="red", linetype="dashed") #Upper bound
+```
+
+## Hypothesis Testing and Confidence Intervals under Heteroskedasticity
+
+```{r}
+summary(nick)$tTable
+summary(nick)$sigma
+coef(nick$modelStruct, unconstrained=FALSE)
+summary(nick)
+```
+
+
+##### 1. Carry out a hypothesis test that beta_pb=0. Report the p-value and draw an appropriate conclusion.
+```{r}
+n <- dim(mr)[1]
+se <- summary(nick)$tTable[2,2]
+bta <- coef(nick)[2]
+test.stat <- (bta-0)/se
+pvalue <- pt(test.stat, df=n-(11+1), lower.tail=FALSE)
+```
+
+Because the p-value of 0 is lower than my alpha of 0.05, I reject the null hypothesis and conclude that beta_pb is not equal to 0.
+
+##### 2. Carry out a hypothesis test that βPB=1. Report the p-value and draw an appropriate conclusion.
+```{r}
+n <- dim(mr)[1]
+se <- summary(nick)$tTable[2,2]
+bta <- coef(nick)[2]
+test.stat <- (bta-1)/se
+pvalue <- pt(test.stat, df=n-(11+1), lower.tail=FALSE)
+```
+
+Because the p-value of 0.992 is greater than alpha of 0.05, I fail to reject the null hypothesis that beta_pb = 1.
+
+##### 3. Construct a 95% confidence interval for beta_pb (this answers research question #1).
+```{r}
+confint(nick)[2,]
+```
+
+##### 4. Construct a 95% confidence interval for theta in your variance function. Draw a conclusion about the variability of log(DomesticGross) as a function of log(ProductionBudget) (this answer research question #2).
+```{r}
+intervals(nick, level=.95)
+```
+
+As a production budget increases by one USD, the variability in the domestic gross decreases by between 0.3606404 and 0.3271729 on average.
+
+## Calculating Standard Errors
+
+##### 1.
+```{r}
+nick
+# it's the same
+```
+
+##### 2.
+```{r}
+pt(test.stat, df=n-11-1)
+
+```
+
+##### 3.
+```{r}
+t_star <- qt(1-0.05/2, df=n-11-1)
+bta - t_star*se
+bta + t_star*se
+```
+

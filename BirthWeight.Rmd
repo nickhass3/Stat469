@@ -1,0 +1,104 @@
+---
+title: "Birth Weight Analysis"
+author: "Nick Hass"
+date: "1/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load packages
+library(tidyverse)
+```
+
+## EDA
+
+## 1.
+For this analysis, we wish to understand the effect of a mothers age on the resulting birth weight.
+The main reasons for analyzing this data is to know what's normal for a baby's birth weight or if the baby has some sort of other problem that's leading them to have a low birth weight.
+The goals are to identify and report on things that affect birth weight with the information that we now have (Mothers age, Gestational age, race, and gender). Then, when we can accurately predict the expected birth weight of a child, if the actual birth weight is significantly different from the expected, then we will know that the baby has some sort of problem.
+
+
+## Birth Weight Data
+
+```{r}
+bw <- read.csv('BirthWeights.txt', sep = " ")
+summary(bw)
+head(bw)
+dplyr::glimpse(bw)
+```
+```{r}
+ggplot(bw, aes(x = Mage)) +
+  geom_bar() +
+  geom_vline(xintercept=mean(bw$Mage), linetype="dashed", color = "red")
+```
+
+The age of mothers at the time of giving birth is centered at about 30.75 years old.
+
+```{r}
+ggplot(bw, aes(x = Gage)) +
+  geom_bar() +
+  geom_vline(xintercept=mean(bw$Gage), linetype="dashed", color = "red")
+```
+
+The age of gestation at the point of birth for babies in this sample is centered at 39.5 weeks.
+
+```{r}
+ggplot(bw, aes(x = Race)) +
+  geom_bar()
+```
+
+In this sample, 410 respondents were white, 341 hispanic, 41 black, and 40 other.
+
+```{r}
+ggplot(bw, aes(x = Gen, y = BirthWeight)) +
+  geom_boxplot()
+```
+
+The spread of birth weight is roughly the same for Males and Females.
+
+```{r}
+ggplot(bw, aes(x = Race, y = BirthWeight)) +
+  geom_boxplot()
+```
+
+Black babies from this sample typically weigh less than babies of other races.
+White babies from this sample have the greatest spread of birth weight compared to other babies in this sample, but that is probably because there were much more observations of white babies than any other race.
+
+```{r}
+ggplot(bw, aes(x = Gage, y = BirthWeight)) +
+  geom_smooth()
+```
+
+Babies born later in the gestational period tend to weigh more at birth.
+
+```{r}
+ggplot(bw, aes(x = Mage, y = BirthWeight)) +
+  geom_smooth()
+```
+
+Babies with mothers younger tend to be born heavier.
+
+
+## 3. Discuss aspects of the data that would create correlation between observations.
+
+There would be correlation between observations if there were more than one baby with the same mother. This would be within subject correlation between observations. 
+
+There would be correlation between observations with mothers of the same age.
+There would be correlation between observations with babies of the same gestational age.
+
+
+```{r}
+ccf(bw$Gage, bw$BirthWeight)
+ccf(bw$Mage, bw$BirthWeight)
+```
+
+It looks like there is little to no cross-observation correlation present between Gestational Age and birth weight or Mothers age and birth weight.
+
+
+## 4.
+I propose that linear regression should be used to analyze this data. Linear regression would be useful to understand the effect of a mothers age on the resulting birth weight because we can use this to predict what an expected average birth weight to be given the age of the mother. We can also use this to quantify how abnormal the baby weight is given the mother's weight. This might help us identify if the baby has something wrong with it that is affecting its weight.
+
+
+## 5.
+One thing I do not know how to do is identify correlation between observations.
