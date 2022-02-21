@@ -8,13 +8,14 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(forecast)
 ```
 
 Load data
 ```{r}
 climate <- as_tibble(read.csv('AnnAvgGlobalClimate.txt', sep = " "))
-climate$Month <- as_factor(climate$Month)
-climate$Date <- zoo::as.yearmon(paste(climate$Year, climate$Month), "%Y %m")
+#climate$Month <- as_factor(climate$Month)
+#climate$Date <- zoo::as.yearmon(paste(climate$Year, climate$Month), "%Y %m")
 ```
 
 
@@ -29,19 +30,21 @@ By the end of this analysis we wish to answer the following questions:
 
 ## Exploratory Data Analysis
 
-1. To make plots with appropriate axes that correspond to the year and month, in the dataset, create a new YrMon variable. I suggest setting myData$YrMon <- myData$Year + (myData$Month - 0.5)/12.
+1. To make plots with appropriate axes that correspond to the year and month, in the dataset, create a new YrMon variable.
 ```{r}
-
+climate$YrMon <- climate$Year + (climate$Month - 0.5)/12
 ```
 
-2 .Draw a time series plot of the temperature anomalies with YrMon along the x-axis with a smooth curve overlaid to emphasize the non-linear aspect of the data.
+2. Draw a time series plot of the temperature anomalies with YrMon along the x-axis with a smooth curve overlaid to emphasize the non-linear aspect of the data.
 ```{r}
-
+ggplot(data=climate, mapping=aes(x = YrMon, y = AnnAnom)) + 
+  geom_line()
 ```
 
 3. Even though we are supposed to draw ACFs of residuals (which we will in the next section after we learn how to fit splines), for now, calculate and draw the ACF of the raw temperature anomalies to show the strong seasonal correlation in the data (note: you may have to increase lag.max to show 2 or 3 seasonal cycles).
 ```{r}
-
+## ggplot() of ACF function
+forecast::ggAcf(x=climate$AnnAnom, lag.max=365)
 ```
 
 
@@ -49,32 +52,36 @@ By the end of this analysis we wish to answer the following questions:
 
 1. Fit a linear spline model with a knot point at 1975 to the annual temperature anomalies (i.e. use lm()). Create a plot of the fitted regression line on top of a time series plot to verify that the linear spline fits the data well (hint: add a geom_smooth(method=lm, formula=y~x+pmax(x-1975, 0), se=FALSE) to the time series plot).
 ```{r}
+climate.lm <- lm(formula=AnnAnom~YrMon+pmax(YrMon-1975, 0), data = climate)
 
+ggplot(data=climate, mapping=aes(x = YrMon, y = AnnAnom)) + 
+  geom_line() +
+  geom_smooth(method=lm, formula=y~x+pmax(x-1975, 0), se=FALSE)
 ```
 
 2. Draw an ACF of the residuals from your model in #2 to verify that there is indeed still temporal correlation in the residuals that we will need to model.
 ```{r}
-
+ggAcf(x=climate.lm$residuals, lag.max=365)
 ```
 
 3 .Define a time series object of AnnAnom as use this object in all your analyses below.
 ```{r}
-
+my.ts <- ts(data = climate$AnnAnom, start=c(1950,1), frequency=12)
 ```
 
 4. Create an X matrix for a linear spline for YrMon with a knot location at 1975 and without an intercept (the Arima() function automatically adds in an intercept for you so you don’t need to include an intercept column in X).
 ```{r}
-
+X <- model.matrix(AnnAnom~-1 + YrMon + pmax(YrMon-1975, 0), data=climate)
 ```
 
 5. Using auto.arima() choose which p, d, q, P, D, Q to use by comparing AIC or BIC values for models with an order of 2 or less (i.e. max.p=max.q=max.Q=max.P=2) and a max differencing of 1 (i.e. max.d=max.D=1). Make sure to use your linear spline as the xreg= value.
 ```{r}
-
+auto.arima(my.ts, max.p=2, max.q=2, max.P=2, max.Q=2, max.d=1, max.D=1, ic="aic", stepwise=TRUE/FALSE, xreg=X)
 ```
 
 6. Fit your chosen model and examine the model estimates.
 ```{r}
-
+my.sarima.model <- Arima(my.ts, order=c(1,0,2), seasonal=c(2,0,0), xreg=X)
 ```
 
 
@@ -82,7 +89,22 @@ By the end of this analysis we wish to answer the following questions:
 
 1. Verify your assumptions of independence, normality and equal variance by drawing an ACF of the decorrelated residuals, a fitted values vs. residual plot and a histogram (or density plot) of the decorrelated residuals.
 ```{r}
+# extract the residuals from a Arima() fit via
+residuals <- resid(my.sarima.model)
+# extract the fitted values
+fitted_values <- fitted(my.sarima.model)
 
+# ACF of the decorrelated residuals
+ggAcf(x=resid(my.sarima.model), lag.max=365)
+
+# Fitted values vs. residual plot
+plot(fitted(my.sarima.model), resid(my.sarima.model))
+abline(0,0)
+
+# histogram of the decorrelated residuals
+ggplot(data = climate, aes(x = resid(my.sarima.model) )) +
+    geom_histogram(fill = 'steelblue', color = 'black') +
+    labs(title = 'Histogram of Residuals', x = 'Residuals', y = 'Frequency')
 ```
 
 2. Validate your predictions by performing a cross valdation. Split the last 60 time periods in your data into a test set and use the remaining as a training set (note you’ll have to split your X matrix too). Fit your best model to the training set and predict the values in the test set. Calculate RPMSE and coverage.
