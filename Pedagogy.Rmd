@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(GGally)
 ```
 
 Primary Research Questions
@@ -35,6 +36,12 @@ summary(scores)
 ```
 
 EDA
+
+```{r}
+ggpairs(scores)
+```
+
+
 ```{r}
 ggplot(data = scores, mapping = aes(x = Exam3+Exam2+Exam1, y = Final)) +
   geom_point() + geom_smooth()
@@ -88,7 +95,7 @@ Equal variance - No
 ```{r}
 # Fit heteroskedastic model
 library(nlme)
-scores.gls <- nlme::gls(model = Final ~ Exam1 + Exam2 + Exam3 + HW + Quiz + Semester, 
+scores.gls <- nlme::gls(model = Final ~ Exam1 + Exam2 + Exam3 + HW + Quiz, 
     data = scores, 
     weights = varFixed(value = ~NStudents),
     method = "ML") # Maximum Likelihood
