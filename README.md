@@ -1,4 +1,1 @@
-# Stat469-Pedagogy
-# Stat469-Pedagogy
-# Stat469-Pedagogy
-# Stat469-Pedagogy
+# Analysis of Correlated Data in R
